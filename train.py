@@ -8,10 +8,10 @@ from __future__ import print_function
 import os
 import torch
 import utils
+import yolov3
 import darknet
 import argparse
 import numpy as np
-import shufflenetv2
 import dataset as ds
 import torch.utils.data
 import evaluate as eval
@@ -19,15 +19,15 @@ from progressbar import *
 import multiprocessing as mp
 from functools import partial
 
-def train_one_epoch(model, optimizer, lr_scheduler, data_loader, epoch, interval, shared_size, scale_sampler, sparsity=False, lamb=0.01):
+def train_one_epoch(model, criterion, optimizer, lr_scheduler, data_loader, epoch, interval, shared_size, scale_sampler, device, sparsity=False, lamb=0.01):
     model.train()
     msgs = []
     widgets = ['Training epoch %d: ' % (epoch+1), Percentage(), ' ', Bar('#'), ' ', Timer(), ' ', ETA()]
     pbar = ProgressBar(widgets=widgets, maxval=len(data_loader)).start()
-    
-    for batch_id, (images, target) in enumerate(data_loader):
-        x = torch.cat(tensors=images, dim=0)    # Nx(1xCxHxW)=>NxCxHxW
-        loss, metrics = model(x, target)
+    size = [416,416]
+    for batch_id, (images, targets) in enumerate(data_loader):
+        ys = model(images.to(device))
+        loss, metrics = criterion(ys, targets.to(device), size)
         
         total_batches = epoch * len(data_loader) + batch_id
         if total_batches % interval == 0:
@@ -66,7 +66,8 @@ def main(args):
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.workers,
-        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=True))
+        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=True),
+        pin_memory=args.pin)
     
     dataset_valid = ds.CustomDataset(args.dataset, 'test')
     data_loader_valid = torch.utils.data.DataLoader(
@@ -74,7 +75,8 @@ def main(args):
         batch_size=1,
         shuffle=False,
         num_workers=1,
-        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=False))
+        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=False),
+        pin_memory=args.pin)
 
     model = darknet.DarkNet(anchors, in_size, num_classes=args.num_classes).to(device)
     if args.checkpoint:
@@ -83,7 +85,9 @@ def main(args):
     
     if args.sparsity:
         model.load_prune_permit('model/prune_permit.json')
-    
+        
+    criterion = yolov3.YOLOv3Loss(args.num_classes, anchors)
+    decoder = yolov3.YOLOv3EvalDecoder(in_size, args.num_classes, anchors)
     if args.test_only:
         mAP = eval.evaluate(model, data_loader_valid, device, args.num_classes)
         print(f'mAP of current model on validation dataset:%.2f%%' % (mAP * 100))
@@ -118,7 +122,7 @@ def main(args):
 
     best_mAP = 0
     for epoch in range(start_epoch, args.epochs):
-        msgs = train_one_epoch(model, optimizer, lr_scheduler, data_loader, epoch, args.interval, shared_size, scale_sampler, args.sparsity, args.lamb)
+        msgs = train_one_epoch(model, criterion, optimizer, lr_scheduler, data_loader, epoch, args.interval, shared_size, scale_sampler, device, args.sparsity, args.lamb)
         utils.print_training_message(epoch + 1, msgs, args.batch_size)
         torch.save(model.state_dict(), f"checkpoint/{args.savename}-ckpt-%03d.pth" % epoch)
         torch.save({
@@ -127,7 +131,7 @@ def main(args):
             'lr_scheduler' : lr_scheduler.state_dict()}, 'checkpoint/trainer-ckpt.pth')
         
         if epoch >= args.eval_epoch:
-            mAP = eval.evaluate(model, data_loader_valid, device, args.num_classes)
+            mAP = eval.evaluate(model, decoder, data_loader_valid, device, args.num_classes)
             with open('log/mAP.txt', 'a') as file:
                 file.write(f'{epoch} {mAP}\n')
                 file.close()
@@ -157,7 +161,8 @@ if __name__ == '__main__':
     parser.add_argument('--test-only', help='only test the model', action='store_true')
     parser.add_argument('--eval-epoch', type=int, default=10, help='epoch beginning evaluate')
     parser.add_argument('--sparsity', help='enable sparsity training', action='store_true')
-    parser.add_argument('--lamb', type=float, default=0.01, help='sparsity factor')   
+    parser.add_argument('--lamb', type=float, default=0.01, help='sparsity factor')
+    parser.add_argument('--pin', help='use pin_memory', action='store_true')
     args = parser.parse_args()
     print(args)
     main(args)

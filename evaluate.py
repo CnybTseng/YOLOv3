@@ -10,26 +10,26 @@ import re
 import glob
 import torch
 import utils
+import yolov3
 import darknet
 import argparse
 import numpy as np
-import shufflenetv2
 import dataset as ds
 import torch.utils.data
 from progressbar import *
 import multiprocessing as mp
 from functools import partial
 
-def evaluate(model, data_loader, device, num_classes):
+def evaluate(model, decoder, data_loader, device, num_classes):
     dets = list()
     gts = list()
     widgets = ['Evaluate: ', Percentage(), ' ', Bar('#'), ' ', Timer(), ' ', ETA()]
     pbar = ProgressBar(widgets=widgets, maxval=len(data_loader)).start()
     for batch_id, (images, targets) in enumerate(data_loader):
         model.eval()
-        x = torch.cat(tensors=images, dim=0)
         with torch.no_grad():
-            y = model(x)
+            xs = model(images.to(device))
+            y = decoder(xs)
             z = utils.get_network_boxes(y, thresh=0.25)
             nms = utils.nms_obj(z)
         dets.append(nms)
@@ -63,7 +63,8 @@ if __name__ == '__main__':
         batch_size=1,
         shuffle=False,
         num_workers=args.workers,
-        collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False))
+        collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False),
+        pin_memory=True)
     
     if os.path.isdir(args.model):
         paths = list(sorted(glob.glob(os.path.join(args.model, '*.pth'))))
@@ -76,8 +77,8 @@ if __name__ == '__main__':
             anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
             model = darknet.DarkNet(anchors, in_size, num_classes=args.num_classes).to(device)
             model.load_state_dict(torch.load(path, map_location=device))
-            model.eval()
-            mAP = evaluate(model, data_loader, device, args.num_classes)
+            decoder = yolov3.YOLOv3EvalDecoder(in_size, args.num_classes, anchors)
+            mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
             mAPs.append(mAP)
             
             with open('log/evaluation.txt', 'a') as file:
@@ -92,6 +93,6 @@ if __name__ == '__main__':
         anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
         model = darknet.DarkNet(anchors, in_size, num_classes=args.num_classes).to(device)
         model.load_state_dict(torch.load(args.model, map_location=device))
-        model.eval()
-        mAP = evaluate(model, data_loader, device, args.num_classes)
+        decoder = yolov3.YOLOv3EvalDecoder(in_size, args.num_classes, anchors)
+        mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
         print(f'mAP of {args.model} on validation dataset:%.2f%%' % (mAP * 100))

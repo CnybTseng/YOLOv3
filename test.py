@@ -11,11 +11,11 @@ import cv2
 import glob
 import utils
 import torch
+import yolov3
 import dataset
 import darknet
 import argparse
 import numpy as np
-import shufflenetv2
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -32,10 +32,11 @@ if __name__ == '__main__':
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    model = shufflenetv2.ShuffleNetV2(anchors, in_size=in_size, num_classes=len(class_names)).to(device)
+    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=len(class_names)).to(device)
     model.load_state_dict(torch.load(args.model, map_location=device))
     model.eval()
     
+    decoder = yolov3.YOLOv3EvalDecoder(in_size, len(class_names), anchors)
     transform = dataset.get_transform(train=False, net_w=in_size[0], net_h=in_size[1])
     FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     
@@ -43,8 +44,9 @@ if __name__ == '__main__':
         bgr = cv2.imread(filename, cv2.IMREAD_COLOR)
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         x, _ = transform(rgb, None)
-        x = x.type(FloatTensor) / 255.0
-        y = model(x)
+        x = x.type(FloatTensor) / 255
+        xs = model(x)
+        y = decoder(xs)
         z = utils.get_network_boxes(y.clone(), bgr.shape[:2], thresh=args.thresh)
         nms = utils.nms_obj(z)
         return utils.overlap_detection(bgr, nms, class_names)

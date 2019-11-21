@@ -53,14 +53,11 @@ class RandomSpatialJitter(object):
             input=image.type(self.FloatTensor), size=(nh, nw),
             mode='bilinear', align_corners=True).type_as(image)
         
-        if target:
-            bbox = target['boxes']
-            if bbox.numel() > 0:
-                bbox[:,0] = (bbox[:,0] * nw + dx) / self.net_w
-                bbox[:,1] = (bbox[:,1] * nh + dy) / self.net_h
-                bbox[:,2] = bbox[:,2] * nw / self.net_w
-                bbox[:,3] = bbox[:,3] * nh / self.net_h
-                target["boxes"] = bbox
+        if target.numel() > 0:
+            target[:,2] = (target[:,2] * nw + dx) / self.net_w
+            target[:,3] = (target[:,3] * nh + dy) / self.net_h
+            target[:,4] =  target[:,4] * nw / self.net_w
+            target[:,5] =  target[:,5] * nh / self.net_h
         
         return jit_image, target
 
@@ -211,10 +208,8 @@ class RandomHorizontalFlip(object):
     def __call__(self, image, target):
         if random.random() < self.prob:
             image = image.flip(-1)
-            bbox = target["boxes"]
-            if bbox.numel() > 0:
-                bbox[:,0] = 1 - bbox[:,0]
-                target["boxes"] = bbox
+            if target.numel() > 0:
+                target[:,2] = 1 - target[:,2]
 
         return image, target
 
@@ -250,14 +245,11 @@ class MakeLetterBoxImage(object):
             input=image.type(self.FloatTensor), size=(nh,nw),
             mode='bilinear', align_corners=True).type_as(image)
         
-        if target:
-            bbox = target['boxes']
-            if bbox.numel() > 0:
-                bbox[:,0] = (bbox[:,0] * nw + dx) / self.width
-                bbox[:,1] = (bbox[:,1] * nh + dy) / self.height
-                bbox[:,2] = bbox[:,2] * nw / self.width
-                bbox[:,3] = bbox[:,3] * nh / self.height
-                target["boxes"] = bbox
+        if target is not None and target.numel() > 0:
+            target[:,2] = (target[:,2] * nw + dx) / self.width
+            target[:,3] = (target[:,3] * nh + dy) / self.height
+            target[:,4] =  target[:,4] * nw / self.width
+            target[:,5] =  target[:,5] * nh / self.height
         
         return lb_image, target
 

@@ -21,8 +21,6 @@ class TrainScaleSampler(object):
             sizes = np.linspace(start=self.scale_step[0], stop=self.scale_step[1], num=self.scale_step[2], dtype=np.int32)
             rand_size = sizes[np.random.randint(len(sizes))]
             self.size = [rand_size.item(), rand_size.item()]
-            # with open(os.path.join('log', 'TrainScaleSampler.txt'), 'a') as file:
-            #     file.write(f'update scale to {self.size}/{num_batches}\n')
         return self.size
 
 def print_training_message(epoch, msgs, batch_size):
@@ -314,8 +312,8 @@ def __prediction_and_truth_to_list(outputs, ground_truth, num_classes):
             num_preds[class_id] += 1
         
         # 统计事实的各类物体
-        boxes = target[0]['boxes'].detach().cpu().numpy().tolist()
-        labels = target[0]['labels'].detach().cpu().numpy().tolist()
+        boxes = target[:,2:].detach().cpu().numpy().tolist()
+        labels = target[:,1].detach().cpu().type(torch.IntTensor).numpy().tolist()
         truth_boxes.append(boxes)
         truth_classes.append(labels)
         for label in labels:

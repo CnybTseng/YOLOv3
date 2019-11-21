@@ -4,9 +4,16 @@
 # author: Zeng Zhiwei
 # date: 2019/9/24
 
-import yolo
+import re
+import os
+import cv2
+import glob
 import json
+import utils
 import torch
+import yolov3
+import dataset
+import argparse
 import numpy as np
 import torch.nn.functional as F
 
@@ -52,11 +59,10 @@ class Route(torch.nn.Module):
         return torch.cat(tensors=tensors, dim=1)
        
 class DarkNet(torch.nn.Module):
-    def __init__(self, anchors, in_size=(416,416), num_classes=80, tiny=False, disable_yolo=False):
+    def __init__(self, anchors, in_size=(416,416), num_classes=80):
         super(DarkNet, self).__init__()
         self.anchors=anchors
         self.num_classes = num_classes
-        self.disable_yolo = disable_yolo
         self.momentum = 0.01
         self.negative_slope = 0.1
         self.detection_channels = (5 + self.num_classes) * 3
@@ -109,7 +115,6 @@ class DarkNet(torch.nn.Module):
         self.cbrl7 = ConvBnReLU(in_channels=1024, out_channels=512, kernel_size=1, stride=1, padding=0, momentum=self.momentum, negative_slope=self.negative_slope)
         self.cbrl8 = ConvBnReLU(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1, momentum=self.momentum, negative_slope=self.negative_slope)
         self.conv1 = torch.nn.Conv2d(in_channels=1024, out_channels=self.detection_channels, kernel_size=1, padding=0, bias=True)
-        self.yolo1 = yolo.Yolo(num_classes=self.num_classes, anchors=self.anchors, anchor_mask=(6,7,8), in_size=in_size)
 
         '''YOLO2'''
 
@@ -127,7 +132,6 @@ class DarkNet(torch.nn.Module):
 
         self.cbrl11 = ConvBnReLU(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, momentum=self.momentum, negative_slope=self.negative_slope)
         self.conv2 = torch.nn.Conv2d(in_channels=512, out_channels=self.detection_channels, kernel_size=1, padding=0, bias=True)
-        self.yolo2 = yolo.Yolo(num_classes=self.num_classes, anchors=self.anchors, anchor_mask=(3,4,5), in_size=in_size)
                
         '''YOLO3'''
 
@@ -145,10 +149,8 @@ class DarkNet(torch.nn.Module):
         
         self.cbrl14 = ConvBnReLU(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1, momentum=self.momentum, negative_slope=self.negative_slope)
         self.conv3 = torch.nn.Conv2d(in_channels=256, out_channels=self.detection_channels, kernel_size=1, padding=0, bias=True)
-        self.yolo3 = yolo.Yolo(num_classes=self.num_classes, anchors=self.anchors, anchor_mask=(0,1,2), in_size=in_size)
 
         self.__init_weights()
-        self.__init_prune_permit()
     
     def __init_weights(self):
         for name, module in self.named_modules():
@@ -163,21 +165,17 @@ class DarkNet(torch.nn.Module):
                 torch.nn.init.constant_(module.running_mean.data, 0)
                 torch.nn.init.constant_(module.running_var.data, 0)  
 
-    def forward(self, x, target=None):
+    def forward(self, x):
         '''前向传播.
         
         参数
         ----
         x : Tensor
             输入图像张量.
-        target : Tensor
-            输入目标张量.
         '''
         
-        outputs, metrics, losses = [], [], []
+        outputs = []
         tensors1, tensors2, tensors3, tensors4 = [], [], [], []
-        if target is not None:
-            in_size = (x.size(2), x.size(3))
         
         # backbone
         x = self.cbrl1(x)
@@ -205,13 +203,7 @@ class DarkNet(torch.nn.Module):
         tensors1.insert(0, x.clone())
         x = self.cbrl8(x)
         x = self.conv1(x)
-        if not self.disable_yolo:
-            if target == None:
-                outputs.append(self.yolo1(x))
-            else:
-                loss, metric = self.yolo1(x, target, in_size)
-                losses.append(loss)
-                metrics.append(metric)
+        outputs.append(x)
         
         # YOLO2
         x = self.route1(tensors1)
@@ -224,13 +216,7 @@ class DarkNet(torch.nn.Module):
         tensors3.insert(0, x.clone())
         x = self.cbrl11(x)
         x = self.conv2(x)
-        if not self.disable_yolo:
-            if target == None:
-                outputs.append(self.yolo2(x))
-            else:
-                loss, metric = self.yolo2(x, target, in_size)
-                losses.append(loss)
-                metrics.append(metric)
+        outputs.append(x)
 
         # YOLO3
         x = self.route3(tensors3)
@@ -242,26 +228,14 @@ class DarkNet(torch.nn.Module):
         x = self.pair3(x)
         x = self.cbrl14(x)
         x = self.conv3(x)
-        if not self.disable_yolo:
-            if target == None:
-                outputs.append(self.yolo3(x))
-            else:
-                loss, metric = self.yolo3(x, target, in_size)
-                losses.append(loss)
-                metrics.append(metric)
+        outputs.append(x)
 
-        if not self.disable_yolo:
-            if target == None:
-                return torch.cat(outputs, dim=1).detach().cpu()
-            else:
-                return sum(losses), metrics
-        else:
-            return torch.FloatTensor([0])
+        return outputs
     
     def __init_prune_permit(self):
         index = -1
         for name, module in self.named_modules():
-            if isinstance(module, (torch.nn.Conv2d, Route, Upsample, yolo.Yolo)):
+            if isinstance(module, (torch.nn.Conv2d, Route, Upsample)):
                 index = index + 1
                 if 'stage' in name and 'conv2' in name:
                     index = index + 1
@@ -282,14 +256,6 @@ class DarkNet(torch.nn.Module):
             print(self.prune_permit)
 
     def correct_bn_grad(self, lamb=0.01):
-        '''修正BN层的梯度.
-        
-        参数
-        ----
-        lamb : float
-            稀疏化影响因子.
-        '''
-        
         for name, module in self.named_modules():
             if isinstance(module, torch.nn.BatchNorm2d) and self.prune_permit[name][1]:
                 module.weight.grad.data.add_(lamb * torch.sign(module.weight.data))
@@ -298,5 +264,6 @@ if __name__ == '__main__':
     anchors = ((10,11),(14,15),(17,14),(18,17),(16,20),(21,22),(24,23),(29,32),(44,43))
     model = DarkNet(anchors)
     x = torch.rand(1, 3, 416, 416)
-    y = model(x)
-    print(f'y.size = {y.size()}')
+    ys = model(x)
+    for i,y in enumerate(ys):
+        print(f'the {i+1}th output size is {y.size()}')

@@ -27,16 +27,16 @@ def get_transform(train, net_w=416, net_h=416):
     return T.Compose(transforms)
 
 def collate_fn(batch, in_size=torch.IntTensor([416,416]), train=False):
-    # with open(os.path.join('log', 'collate_fn.txt'), 'a') as file:
-    #     file.write(f'{os.getpid()} {in_size}\n')
-    transformed_batch = []
     transforms = get_transform(train, in_size[0].item(), in_size[1].item())
     FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    for b in batch:
+    images, targets = [], []
+    for i,b in enumerate(batch):
         image, target = transforms(b[0], b[1])
-        image = image.type(FloatTensor) / 255.0
-        transformed_batch.append((image, target))
-    return tuple(zip(*transformed_batch))
+        image = image.type(torch.FloatTensor) / 255
+        target[:,0] = i
+        images.append(image)
+        targets.append(target)
+    return torch.cat(tensors=images, dim=0), torch.cat(tensors=targets, dim=0)
 
 class CustomDataset(object):
     '''定制的数据集.
@@ -48,7 +48,7 @@ class CustomDataset(object):
         self.images_path = path[0::2]
         self.annocations_path = path[1::2]
         self.class_names = self.__load_class_names(os.path.join(root, 'classes.txt'))
-        self.cuda = torch.cuda.is_available()
+        self.cuda = False
         self.device = torch.device('cuda' if self.cuda else 'cpu')
         self.FloatTensor = torch.cuda.FloatTensor if self.cuda else torch.FloatTensor
 
@@ -61,8 +61,7 @@ class CustomDataset(object):
         org_size = image.shape[:2]  # HxWxC => HxW
         annocation = pvr(annocation_path).getShapes()
         
-        boxes = []
-        labels = []
+        target = []
         for an in annocation:
             name = an[0]
             xmin = an[1][0][0]
@@ -71,13 +70,9 @@ class CustomDataset(object):
             ymax = an[1][2][1]
             self.__assert_bbox(xmin, ymin, xmax, ymax, org_size, image_path)
             bx, by, bw, bh = self.__xyxy_to_xywh(xmin, ymin, xmax, ymax, org_size)
-            boxes.append([bx, by, bw, bh])
-            labels.append(self.class_names.index(name))
+            target.append([0, self.class_names.index(name), bx, by, bw, bh])
 
-        boxes = torch.as_tensor(boxes, dtype=torch.float32, device=self.device)
-        labels = torch.as_tensor(labels, dtype=torch.int32, device=self.device)
-        target = {'boxes':boxes, 'labels':labels}
-
+        target = torch.as_tensor(target, dtype=torch.float32, device=self.device)
         return image, target
     
     def __len__(self):
