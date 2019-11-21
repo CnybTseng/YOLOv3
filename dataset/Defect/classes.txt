@@ -1,0 +1,3 @@
+screw_normal
+screw_defect
+connector

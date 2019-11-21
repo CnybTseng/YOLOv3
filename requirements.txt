@@ -1,0 +1,4 @@
+pip3 install opencv-python
+pip3 install progressbar
+pip3 install lxml
+pip3 install matplotlib
