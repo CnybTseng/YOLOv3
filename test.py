@@ -32,7 +32,7 @@ if __name__ == '__main__':
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    model = shufflenetv2.ShuffleNetV2(anchors, in_size=in_size, num_classes=len(class_names)).to(device)
+    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=len(class_names)).to(device)
     model.load_state_dict(torch.load(args.model, map_location=device))
     model.eval()
     
