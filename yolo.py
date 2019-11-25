@@ -475,7 +475,8 @@ class Yolo(torch.nn.Module):
             recall50 = ious50.mean().detach().cpu().item()
             recall75 = ious75.mean().detach().cpu().item()
             aviou = ious.mean().detach().cpu().item()
-            avcat = pred_pro[:,class_indices].mean().detach().cpu().item()
+            row = torch.arange(pred_pro.size(0), dtype=torch.int64, device=self.device)
+            avcat = pred_pro[row,class_indices].mean().detach().cpu().item()
         else:
             class_accuracy = 0.0
             object_confidence = 0.0
