@@ -21,10 +21,9 @@ if __name__ == '__main__':
     parser.add_argument('--darknet-model', '-dm', type=str, dest='dm', default='darknet.weights', help='darknet-format model file')
     args = parser.parse_args()
     
-    tiny = 'tiny' in args.pm
     in_size = [int(insz) for insz in args.in_size.split(',')]
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
-    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes, tiny=tiny)
+    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes)
     model.load_state_dict(torch.load(args.pm, map_location='cpu'))
     
     with open(args.dm, 'wb') as file:

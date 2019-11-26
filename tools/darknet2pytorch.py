@@ -22,10 +22,9 @@ if __name__ == '__main__':
     parser.add_argument('--load-backbone-only', '-lbo', dest='lbo', help='only load the backbone', action='store_true')
     args = parser.parse_args()
     
-    tiny = 'tiny' in args.pm
     in_size = [int(insz) for insz in args.in_size.split(',')]
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
-    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes, tiny=tiny)
+    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes)
     
     with open(args.dm, 'rb') as file:
         major = np.fromfile(file, dtype=np.int32, count=1)
