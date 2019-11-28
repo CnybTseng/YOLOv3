@@ -74,7 +74,7 @@ def main(args):
         batch_size=1,
         shuffle=False,
         num_workers=1,
-        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=False))
+        collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False))
 
     model = darknet.DarkNet(anchors, in_size, num_classes=args.num_classes).to(device)
     if args.checkpoint:
