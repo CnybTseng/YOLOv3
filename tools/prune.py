@@ -16,9 +16,11 @@ from functools import partial
 import timeit
 import json
 import copy
+import glob
 import sys
 import cv2
 import os
+import re
 sys.path.append('.')
 import utils
 import darknet as net
@@ -299,6 +301,7 @@ if __name__ == '__main__':
     parser.add_argument('--image', type=str, default='', help='test image filename')
     parser.add_argument('--test-prune-model', '-test', dest='test', help='test pruned model', action='store_true')
     parser.add_argument('--eval', help='evaluate pruned model', action='store_true')
+    parser.add_argument('--eval-epoch', dest='eval_epoch', type=int, default=0, help='epoch beginning evaluate')
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -320,13 +323,32 @@ if __name__ == '__main__':
             batch_size=1,
             shuffle=False,
             num_workers=0,
-            collate_fn=partial(ds.collate_fn, in_size=in_size, train=False))
+            collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False))
         
-        model = torch.load(args.model, map_location=device)
-        model.eval()
-        mAP = evaluate(model, data_loader, device, args.num_classes)
-        print(f'mAP of {args.model} on validation dataset:%.2f%%' % (mAP * 100))
-        sys.exit()
+        if os.path.isfile(args.model):
+            model = torch.load(args.model, map_location=device)
+            model.eval()
+            mAP = evaluate(model, data_loader, device, args.num_classes)
+            print(f'mAP of {args.model} on validation dataset:%.2f%%' % (mAP * 100))
+            sys.exit()
+        elif os.path.isdir(args.model):
+            paths = list(sorted(glob.glob(os.path.join(args.model, '*.pth'))))
+            mAPs = list()
+            for path in paths:
+                if 'trainer' in path: continue
+                segments = re.split(r'[-,.]', path)
+                if int(segments[-2]) < args.eval_epoch: continue
+                model = torch.load(path, map_location=device)
+                model.eval()
+                mAP = evaluate(model, data_loader, device, args.num_classes)
+                mAPs.append(mAP)
+                with open('log/evaluation.txt', 'a') as file:
+                    file.write(f'{int(segments[-2])} {mAP}\n')
+                    file.close()
+                print(f'mAP of {path} on validation dataset:%.2f%%' % (mAP * 100))
+            mAPs = np.array(mAPs)
+            epoch = np.argmax(mAPs)
+            print(f'Best model is ckpt-{epoch+args.eval_epoch}, best mAP is %.2f%%' % (mAPs[epoch] * 100))
     
     model = net.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes).to(device)
     model.load_state_dict(torch.load(args.model, map_location=device))
