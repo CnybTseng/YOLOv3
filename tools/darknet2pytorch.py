@@ -41,6 +41,16 @@ if __name__ == '__main__':
             if isinstance(module, torch.nn.Conv2d):
                 last_conv = module
                 last_name = name
+                if name is 'conv3':
+                    if last_conv.bias is not None:
+                        print(f'write to {last_name}.bias')
+                        bias = torch.from_numpy(np.fromfile(file, dtype=np.float32, count=last_conv.bias.numel()))
+                        assert bias.numel() == last_conv.bias.numel()
+                        last_conv.bias.data.copy_(bias.view_as(last_conv.bias))
+                    print(f'write to {last_name}')
+                    weight = torch.from_numpy(np.fromfile(file, dtype=np.float32, count=last_conv.weight.numel()))
+                    assert weight.numel() == last_conv.weight.numel()
+                    last_conv.weight.data.copy_(weight.view_as(last_conv.weight))
             elif isinstance(module, torch.nn.BatchNorm2d):
                 print(f'write to {name}')
                 bias = torch.from_numpy(np.fromfile(file, dtype=np.float32, count=module.bias.numel()))
