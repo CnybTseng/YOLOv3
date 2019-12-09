@@ -135,15 +135,15 @@ if __name__ == '__main__':
             bn_layer.top.append(name)
             bn_layer.batch_norm_param.use_global_stats = 1
             
-            bn_layer.blobs.append(pb.BlobProto())
+            bn_layer.blobs.append(pb.BlobProto())       # mean
             bn_layer.blobs[-1].shape.dim.append(module.running_mean.size(0))
             for data in module.running_mean.detach().cpu().numpy():
                 bn_layer.blobs[-1].data.append(data)
-            bn_layer.blobs.append(pb.BlobProto())
+            bn_layer.blobs.append(pb.BlobProto())       # variance
             bn_layer.blobs[-1].shape.dim.append(module.running_var.size(0))
             for data in module.running_var.detach().cpu().numpy():
                 bn_layer.blobs[-1].data.append(data)
-            bn_layer.blobs.append(pb.BlobProto())
+            bn_layer.blobs.append(pb.BlobProto())       # moving average factor
             bn_layer.blobs[-1].shape.dim.append(1)
             bn_layer.blobs[-1].data.append(1)
             
@@ -175,7 +175,7 @@ if __name__ == '__main__':
             relu_layer.top.append(name)
             relu_layer.relu_param.negative_slope = module.negative_slope
             bottom = name
-            if 'relu2' in name:
+            if residual and 'relu2' in name:
                 if skip_bottom == '':
                     print('skip_bottom of Eltwise is empty!')
                     sys.exit(0)
@@ -186,7 +186,7 @@ if __name__ == '__main__':
                 ew_layer.bottom.append(skip_bottom)
                 ew_layer.bottom.append(bottom)
                 ew_layer.top.append(name_)
-                ew_layer.eltwise_param.operation = 1
+                ew_layer.eltwise_param.operation = 1    # 1:SUM
                 residual = False                        # end of Residual block
                 skip_bottom = ''
                 bottom = name_                
@@ -212,9 +212,9 @@ if __name__ == '__main__':
                     layer.bottom.append('stage3_7_ew')
                 layer.top.append(name)
                 bottom = name
-            elif 'route1' in name:
+            elif 'route1' in name:                      # only one bottom
                 bottom = 'cbrl7_relu'
-            elif 'route3' in name:
+            elif 'route3' in name:                      # only one bottom
                 bottom = 'pair2_3_relu'
 
     with open(args.cmodel, 'wb') as file:
