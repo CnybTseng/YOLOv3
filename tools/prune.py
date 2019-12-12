@@ -26,6 +26,7 @@ import utils
 import darknet as net
 import dataset as ds
 from evaluate import evaluate
+import yolov3
 
 def save_print_stdout(object, filename):
     old_stdout = sys.stdout
@@ -255,7 +256,7 @@ def model_slimming(model, prune_config):
     
     return model
 
-def inference(model, filename, in_size, class_names):
+def inference(model, decoder, filename, in_size, class_names):
     model.eval()
     transform = ds.get_transform(train=False, net_w=in_size[0], net_h=in_size[1])
     FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
@@ -266,7 +267,8 @@ def inference(model, filename, in_size, class_names):
     x = x.type(FloatTensor) / 255.0
     
     start = timeit.default_timer()
-    y = model(x)
+    xs = model(x)
+    y = decoder(xs)
     end = timeit.default_timer()
     latency = end - start
     
@@ -307,11 +309,12 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     in_size = [int(insz) for insz in args.in_size.split(',')]
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
-    class_names = utils.load_class_names(os.path.join(args.dataset, 'classes.txt'))    
+    class_names = utils.load_class_names(os.path.join(args.dataset, 'classes.txt'))
+    decoder = yolov3.YOLOv3EvalDecoder(in_size, len(class_names), anchors)
     
     if args.test:
         model = torch.load(args.model, map_location=device)
-        result, latency, _ = inference(model, args.image, in_size, class_names)
+        result, latency, _ = inference(model, decoder, args.image, in_size, class_names)
         print(f'pruned model latency is {latency} seconds.')
         cv2.imwrite('detection-prune.jpg', result)
         sys.exit()
@@ -328,7 +331,7 @@ if __name__ == '__main__':
         if os.path.isfile(args.model):
             model = torch.load(args.model, map_location=device)
             model.eval()
-            mAP = evaluate(model, data_loader, device, args.num_classes)
+            mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
             print(f'mAP of {args.model} on validation dataset:%.2f%%' % (mAP * 100))
             sys.exit()
         elif os.path.isdir(args.model):
@@ -340,7 +343,7 @@ if __name__ == '__main__':
                 if int(segments[-2]) < args.eval_epoch: continue
                 model = torch.load(path, map_location=device)
                 model.eval()
-                mAP = evaluate(model, data_loader, device, args.num_classes)
+                mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
                 mAPs.append(mAP)
                 with open('log/evaluation.txt', 'a') as file:
                     file.write(f'{int(segments[-2])} {mAP}\n')
@@ -359,7 +362,7 @@ if __name__ == '__main__':
     model_copy = copy.deepcopy(model)
     
     if args.image:
-        result, latency, y = inference(model, args.image, in_size, class_names)
+        result, latency, y = inference(model, decoder, args.image, in_size, class_names)
         print(f'original model latency is {latency} seconds.')
         cv2.imwrite('detection.jpg', result)
         np.savetxt('log/0.txt', y.data.numpy().flatten())
@@ -371,7 +374,7 @@ if __name__ == '__main__':
     torch.save(model.state_dict(), f"log/yolov3-prune.pth")
     torch.save(model, f"log/yolov3-prune-full.pth")
     
-    compare_models(model_copy, model)
+    # compare_models(model_copy, model)
     
     save_print_stdout(model, 'log/model-prune.txt')
     with open('log/prune_config.json', 'w') as file:
@@ -379,12 +382,13 @@ if __name__ == '__main__':
         file.close()
 
     if args.image:
-        result, latency, y = inference(model, args.image, in_size, class_names)
+        result, latency, y = inference(model, decoder, args.image, in_size, class_names)
         print(f'pruned model latency is {latency} seconds.')
         cv2.imwrite('detection-prune.jpg', result)
         np.savetxt('log/1.txt', y.data.numpy().flatten())
     else:
         print('test pruned model...', end='')
         x = torch.rand(1, 3, 416, 416)
-        y = model(x)
-        print(f'done\noutput size is {y.size()}')
+        ys = model(x)
+        for y in ys:
+            print(f'done\noutput size is {y.size()}')
