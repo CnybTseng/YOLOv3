@@ -18,7 +18,7 @@ if __name__ == '__main__':
     APs = []
     for det in dets:
         classname = det.split('.')[0].split('_')[-1]
-        rec, prec, ap = voc_eval(detpath, annopath, args.imagesetfile, classname, '.', args.ovthresh, args.use_07_metric)
+        rec, prec, ap = voc_eval(detpath, annopath, args.imagesetfile, classname, 'log', args.ovthresh, args.use_07_metric)
         APs.append(ap)
         print("AP of {} is {}".format(classname, ap))
     print("mAP is {}".format(sum(APs)/len(APs)))

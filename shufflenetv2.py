@@ -239,7 +239,6 @@ class ShuffleNetV2(torch.nn.Module):
 if __name__ == '__main__':
     anchors = np.random.randint(low=10, high=150, size=(9,2))
     model = ShuffleNetV2(anchors, model_size='2.0x')
-    model.load_state_dict(torch.load('log/ShuffleNetV2.2.0x.YOLOv3.pth.tar'))
     model.eval()
     x = torch.rand(1, 3, 416, 416)
     y = model(x)

@@ -5,15 +5,14 @@
 # date: 2019/7/17
 
 import os
-import glob
-import numpy as np
 import cv2
-import torch
-from pascalvoc import PascalVocReader as pvr
-import utils
 import sys
+import glob
+import torch
+import utils
+import numpy as np
 import transforms as T
-import torch.nn.functional as tnf
+from pascalvoc import PascalVocReader as pvr
 
 def get_transform(train, net_w=416, net_h=416):
     transforms = []
@@ -28,7 +27,6 @@ def get_transform(train, net_w=416, net_h=416):
 
 def collate_fn(batch, in_size=torch.IntTensor([416,416]), train=False):
     transforms = get_transform(train, in_size[0].item(), in_size[1].item())
-    FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     images, targets = [], []
     for i,b in enumerate(batch):
         image, target = transforms(b[0], b[1])
@@ -39,18 +37,12 @@ def collate_fn(batch, in_size=torch.IntTensor([416,416]), train=False):
     return torch.cat(tensors=images, dim=0), torch.cat(tensors=targets, dim=0)
 
 class CustomDataset(object):
-    '''定制的数据集.
-    '''
-    
     def __init__(self, root, file='train'):
         self.root = root
         path = open(os.path.join(root, f'{file}.txt')).read().split()
         self.images_path = path[0::2]
         self.annocations_path = path[1::2]
         self.class_names = self.__load_class_names(os.path.join(root, 'classes.txt'))
-        self.cuda = False
-        self.device = torch.device('cuda' if self.cuda else 'cpu')
-        self.FloatTensor = torch.cuda.FloatTensor if self.cuda else torch.FloatTensor
 
     def __getitem__(self, index):
         image_path = self.images_path[index]
@@ -58,7 +50,7 @@ class CustomDataset(object):
 
         image = cv2.imread(image_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        org_size = image.shape[:2]  # HxWxC => HxW
+        org_size = image.shape[:2]
         annocation = pvr(annocation_path).getShapes()
         
         target = []
@@ -72,7 +64,7 @@ class CustomDataset(object):
             bx, by, bw, bh = self.__xyxy_to_xywh(xmin, ymin, xmax, ymax, org_size)
             target.append([0, self.class_names.index(name), bx, by, bw, bh])
 
-        target = torch.as_tensor(target, dtype=torch.float32, device=self.device)
+        target = torch.as_tensor(target, dtype=torch.float32, device=torch.device('cpu'))
         return image, target
     
     def __len__(self):
@@ -113,4 +105,3 @@ class CustomDataset(object):
             print(f'BAD BOUNDING BOX! ymax={ymax}, size={size}, {filename}')
             sys.exit()
         ymax -= 1
-        

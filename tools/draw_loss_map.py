@@ -6,9 +6,14 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
+import argparse
 import os
 
-loss = np.loadtxt('log/loss.txt')
+parser = argparse.ArgumentParser()
+parser.add_argument('--workspace', type=str, default='workspace', help='workspace path')
+args = parser.parse_args()
+
+loss = np.loadtxt(f'{args.workspace}/log/loss.txt')
 min_loss_epoch = np.argmin(loss)
 
 fig, ax1 = plt.subplots()
@@ -27,8 +32,8 @@ ax2 = ax1.twinx()
 ax2.set_ylim([0,1])
 ax2.set_ylabel('mAP')
 
-if os.path.isfile('log/mAP.txt'):
-    mAP = np.loadtxt('log/mAP.txt')
+if os.path.isfile(f'{args.workspace}/log/mAP.txt'):
+    mAP = np.loadtxt(f'{args.workspace}/log/mAP.txt')
     max_mAP_epoch = np.argmax(mAP[:,1])
     # ax2.bar(mAP[:,0], mAP[:,1], width=0.2)
     ax2.plot(mAP[:,0], mAP[:,1], 'y-')
@@ -37,8 +42,8 @@ if os.path.isfile('log/mAP.txt'):
     mme = np.int(mAP[max_mAP_epoch,0])
     title += f'\nmax mAP:%.2f, epoch:{mme}' % mAP[max_mAP_epoch,1]
 
-if os.path.isfile('log/evaluation.txt'):
-    mAP = np.loadtxt('log/evaluation.txt')
+if os.path.isfile(f'{args.workspace}/log/evaluation.txt'):
+    mAP = np.loadtxt(f'{args.workspace}/log/evaluation.txt')
     max_mAP_epoch = np.argmax(mAP[:,1])
     ax2.plot(mAP[:,0], mAP[:,1], 'b-')
     ax2.tick_params(axis='y')

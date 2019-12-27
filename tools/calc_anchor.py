@@ -67,6 +67,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='dataset', help='dataset path')
     parser.add_argument('--k', type=int, default=9, help='number of clusters')
     parser.add_argument('--max-iters', dest='max_iters', type=int, default=1000, help='maximum number of iterations')
+    parser.add_argument('--workspace', type=str, default='workspace', help='workspace path')
     args = parser.parse_args()
     
     print('read annocation...', end='')
@@ -95,7 +96,7 @@ if __name__ == '__main__':
     num_reassignment = [di[2] for di in debug_info]
     print(f'done\nbest centroids: {centroids}, avg_iou: {avg_iou[-1]}')
     
-    np.savetxt('log/anchors.txt', centroids, '%d')
+    np.savetxt(f'{args.workspace}/log/anchors.txt', centroids, '%d')
     
     fig, ax1 = plt.subplots()
     ax1.set_title('Anchor Cluster')
@@ -108,7 +109,7 @@ if __name__ == '__main__':
     ax2.set_ylabel('num_reassignment')
     ax2.plot(num_reassignment, 'b-')
     ax2.tick_params(axis='y')
-    plt.savefig(f'log/cluster.jpg', dpi=800)
+    plt.savefig(f'{args.workspace}/log/cluster.jpg', dpi=800)
     
     fig2 = plt.figure()
     ax3 = fig2.add_subplot(111)
@@ -117,4 +118,4 @@ if __name__ == '__main__':
     ax3.set_ylabel('height')
     ax3.scatter(x=wh[:,0], y=wh[:,1], c='r', marker='x')
     ax3.plot(centroids[:,0], centroids[:,1], 'bo', fillstyle=None)
-    fig2.savefig(f'log/wh.jpg', dpi=800)
+    fig2.savefig(f'{args.workspace}/log/wh.jpg', dpi=800)

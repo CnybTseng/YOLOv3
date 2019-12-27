@@ -73,6 +73,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='', help='dataset path')
     parser.add_argument('--num-classes', type=int, default=3, help='number of classes')
     parser.add_argument('--caffe-model', '-cm', dest='cmodel', help='Caffe-format model path')
+    parser.add_argument('--pruned-model', action='store_true')
     args = parser.parse_args()
     print(args)
     
@@ -85,10 +86,14 @@ if __name__ == '__main__':
         prototxt = args.cmodel.replace('caffemodel', 'prototxt')
         write_prototxt(net, prototxt, in_size)
         sys.exit(0)
-        
-    anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
-    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes)
-    model.load_state_dict(torch.load(args.pmodel, map_location='cpu'))
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if not args.pruned_model:
+        anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
+        model = darknet.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes)
+        model.load_state_dict(torch.load(args.pmodel, map_location=device))
+    else:
+        model = torch.load(args.pmodel, map_location=device)
     
     net = pb.NetParameter()
     net.name = 'PyTorch2Caffe'

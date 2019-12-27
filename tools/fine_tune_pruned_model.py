@@ -8,10 +8,10 @@ from __future__ import print_function
 import os
 import torch
 import utils
+import yolov3
 import darknet
 import argparse
 import numpy as np
-import shufflenetv2
 import dataset as ds
 import torch.utils.data
 import evaluate as eval
@@ -19,15 +19,15 @@ from progressbar import *
 import multiprocessing as mp
 from functools import partial
 
-def train_one_epoch(model, optimizer, lr_scheduler, data_loader, epoch, interval, shared_size, scale_sampler, sparsity=False, lamb=0.01):
+def train_one_epoch(model, criterion, optimizer, lr_scheduler, data_loader, epoch, interval, shared_size, scale_sampler, device, sparsity=False, lamb=0.01):
     model.train()
     msgs = []
     widgets = ['Training epoch %d: ' % (epoch+1), Percentage(), ' ', Bar('#'), ' ', Timer(), ' ', ETA()]
     pbar = ProgressBar(widgets=widgets, maxval=len(data_loader)).start()
-    
-    for batch_id, (images, target) in enumerate(data_loader):
-        x = torch.cat(tensors=images, dim=0)    # Nx(1xCxHxW)=>NxCxHxW
-        loss, metrics = model(x, target)
+    size = [416,416]
+    for batch_id, (images, targets) in enumerate(data_loader):
+        ys = model(images.to(device))
+        loss, metrics = criterion(ys, targets.to(device), size)
         
         total_batches = epoch * len(data_loader) + batch_id
         if total_batches % interval == 0:
@@ -37,9 +37,6 @@ def train_one_epoch(model, optimizer, lr_scheduler, data_loader, epoch, interval
         if sparsity: model.correct_bn_grad(lamb)
         if total_batches % interval == interval - 1:
             lr_scheduler.step()
-            with open('log/lr.txt', 'a') as file:
-                file.write(f'{lr_scheduler.get_lr()[0]}\n')
-                file.close()
             optimizer.step()
         
         msgs.append((loss.detach().cpu().item(), metrics))
@@ -51,8 +48,12 @@ def train_one_epoch(model, optimizer, lr_scheduler, data_loader, epoch, interval
     return msgs
 
 def main(args):
-    try: mp.set_start_method('spawn')
-    except RuntimeError: pass
+    try:
+        mp.set_start_method('spawn')
+    except RuntimeError:
+        pass
+    
+    utils.make_workspace_dirs(args.workspace)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     in_size = [int(insz) for insz in args.in_size.split(',')]
     scale_step = [int(ss) for ss in args.scale_step.split(',')]
@@ -66,7 +67,8 @@ def main(args):
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.workers,
-        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=True))
+        collate_fn=partial(ds.collate_fn, in_size=shared_size, train=True),
+        pin_memory=args.pin)
     
     dataset_valid = ds.CustomDataset(args.dataset, 'test')
     data_loader_valid = torch.utils.data.DataLoader(
@@ -74,7 +76,8 @@ def main(args):
         batch_size=1,
         shuffle=False,
         num_workers=1,
-        collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False))
+        collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False),
+        pin_memory=args.pin)
 
     if args.checkpoint:
         print(f'load {args.checkpoint}')
@@ -83,6 +86,8 @@ def main(args):
         print('please set fine tune model first!')
         return
     
+    criterion = yolov3.YOLOv3Loss(args.num_classes, anchors)
+    decoder = yolov3.YOLOv3EvalDecoder(in_size, args.num_classes, anchors)
     if args.test_only:
         mAP = eval.evaluate(model, data_loader_valid, device, args.num_classes)
         print(f'mAP of current model on validation dataset:%.2f%%' % (mAP * 100))
@@ -95,7 +100,7 @@ def main(args):
         optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
 
     if args.resume:
-        trainer_state = torch.load('checkpoint/trainer-ckpt.pth')
+        trainer_state = torch.load(f'{args.workspace}/checkpoint/trainer-ckpt.pth')
         optimizer.load_state_dict(trainer_state['optimizer'])
  
     milestones = [int(ms) for ms in args.milestones.split(',')]
@@ -117,17 +122,17 @@ def main(args):
 
     best_mAP = 0
     for epoch in range(start_epoch, args.epochs):
-        msgs = train_one_epoch(model, optimizer, lr_scheduler, data_loader, epoch, args.interval, shared_size, scale_sampler, args.sparsity, args.lamb)
+        msgs = train_one_epoch(model, criterion, optimizer, lr_scheduler, data_loader, epoch, args.interval, shared_size, scale_sampler, device, args.sparsity, args.lamb)
         utils.print_training_message(epoch + 1, msgs, args.batch_size)
-        torch.save(model, f"checkpoint/{args.savename}-ckpt-%03d.pth" % epoch)
+        torch.save(model, f"{args.workspace}/checkpoint/{args.savename}-ckpt-%03d.pth" % epoch)
         torch.save({
             'epoch' : epoch,
             'optimizer' : optimizer.state_dict(),
-            'lr_scheduler' : lr_scheduler.state_dict()}, 'checkpoint/trainer-ckpt.pth')
+            'lr_scheduler' : lr_scheduler.state_dict()}, f'{args.workspace}/checkpoint/trainer-ckpt.pth')
         
         if epoch >= args.eval_epoch:
-            mAP = eval.evaluate(model, data_loader_valid, device, args.num_classes)
-            with open('log/mAP.txt', 'a') as file:
+            mAP = eval.evaluate(model, decoder, data_loader_valid, device, args.num_classes)
+            with open(f'{args.workspace}/log/mAP.txt', 'a') as file:
                 file.write(f'{epoch} {mAP}\n')
                 file.close()
             print(f'Current mAP:%.2f%%' % (mAP * 100))
@@ -156,7 +161,9 @@ if __name__ == '__main__':
     parser.add_argument('--test-only', help='only test the model', action='store_true')
     parser.add_argument('--eval-epoch', type=int, default=10, help='epoch beginning evaluate')
     parser.add_argument('--sparsity', help='enable sparsity training', action='store_true')
-    parser.add_argument('--lamb', type=float, default=0.01, help='sparsity factor')   
+    parser.add_argument('--lamb', type=float, default=0.01, help='sparsity factor')  
+    parser.add_argument('--pin', help='use pin_memory', action='store_true')
+    parser.add_argument('--workspace', type=str, default='workspace', help='workspace path')
     args = parser.parse_args()
     print(args)
     main(args)

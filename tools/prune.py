@@ -49,7 +49,7 @@ def save_model_parameter_as_file(model, path):
             np.savetxt(f'{path}/{name}.running_mean.txt', module.running_mean.data.numpy())
             np.savetxt(f'{path}/{name}.running_var.txt', module.running_var.data.numpy())
 
-def calc_prune_thresh(model, pr, force_thresh=0):
+def calc_prune_thresh(model, pr, workspace, force_thresh=0):
     gamma = list()
     layer_id = list()
     layer_name = list()
@@ -72,7 +72,7 @@ def calc_prune_thresh(model, pr, force_thresh=0):
     if force_thresh > 0:
         thresh = force_thresh
         
-    with open('log/gamma.txt', 'w') as file:
+    with open(f'{workspace}/log/gamma.txt', 'w') as file:
         for g in gamma_all:
             file.write(f'{g}\n')
         file.write(f'thresh_index:{thresh_index}\n')
@@ -92,7 +92,7 @@ def calc_prune_thresh(model, pr, force_thresh=0):
         plt.plot([thresh] * len(gamma[k]), 'b--')
         plt.xlabel('Channel Index')
         plt.ylabel('Gamma Abs. Value')
-        plt.savefig(f'log/layer_{layer_id[k]}.jpg', dpi=120)
+        plt.savefig(f'{workspace}/log/layer_{layer_id[k]}.jpg', dpi=120)
         plt.clf()
     
     return thresh
@@ -273,7 +273,7 @@ def inference(model, decoder, filename, in_size, class_names):
     latency = end - start
     
     z = utils.get_network_boxes(y.clone(), im.shape[:2], thresh=0.5)
-    nms = utils.nms_obj(z)
+    nms = utils.do_nms_sort(z)
     result = utils.overlap_detection(im, nms, class_names)
     
     return result, latency, y
@@ -304,6 +304,7 @@ if __name__ == '__main__':
     parser.add_argument('--test-prune-model', '-test', dest='test', help='test pruned model', action='store_true')
     parser.add_argument('--eval', help='evaluate pruned model', action='store_true')
     parser.add_argument('--eval-epoch', dest='eval_epoch', type=int, default=0, help='epoch beginning evaluate')
+    parser.add_argument('--workspace', type=str, default='workspace', help='workspace path')
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -316,7 +317,7 @@ if __name__ == '__main__':
         model = torch.load(args.model, map_location=device)
         result, latency, _ = inference(model, decoder, args.image, in_size, class_names)
         print(f'pruned model latency is {latency} seconds.')
-        cv2.imwrite('detection-prune.jpg', result)
+        cv2.imwrite('detection/detection-prune.jpg', result)
         sys.exit()
     
     if args.eval:
@@ -345,7 +346,7 @@ if __name__ == '__main__':
                 model.eval()
                 mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
                 mAPs.append(mAP)
-                with open('log/evaluation.txt', 'a') as file:
+                with open(f'{args.workspace}/log/evaluation.txt', 'a') as file:
                     file.write(f'{int(segments[-2])} {mAP}\n')
                     file.close()
                 print(f'mAP of {path} on validation dataset:%.2f%%' % (mAP * 100))
@@ -356,7 +357,7 @@ if __name__ == '__main__':
     model = net.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes).to(device)
     model.load_state_dict(torch.load(args.model, map_location=device))
     model.load_prune_permit('model/prune_permit.json')
-    save_print_stdout(model, 'log/model.txt')
+    save_print_stdout(model, f'{args.workspace}/log/model.txt')
     model.eval()
     # save_model_parameter_as_file(model, 'log/0')
     model_copy = copy.deepcopy(model)
@@ -364,28 +365,28 @@ if __name__ == '__main__':
     if args.image:
         result, latency, y = inference(model, decoder, args.image, in_size, class_names)
         print(f'original model latency is {latency} seconds.')
-        cv2.imwrite('detection.jpg', result)
-        np.savetxt('log/0.txt', y.data.numpy().flatten())
+        cv2.imwrite('detection/detection.jpg', result)
+        np.savetxt(f'{args.workspace}/log/0.txt', y.data.numpy().flatten())
     
-    thresh = calc_prune_thresh(model, args.pr, force_thresh=args.thresh)    
+    thresh = calc_prune_thresh(model, args.pr, args.workspace, force_thresh=args.thresh)    
     prune_config = make_prune_config(model, thresh)
     model = model_slimming(model, prune_config)
     # save_model_parameter_as_file(model, 'log/1')
-    torch.save(model.state_dict(), f"log/yolov3-prune.pth")
-    torch.save(model, f"log/yolov3-prune-full.pth")
+    torch.save(model.state_dict(), f"{args.workspace}/log/yolov3-prune.pth")
+    torch.save(model, f"{args.workspace}/log/yolov3-prune-full.pth")
     
     # compare_models(model_copy, model)
     
-    save_print_stdout(model, 'log/model-prune.txt')
-    with open('log/prune_config.json', 'w') as file:
+    save_print_stdout(model, f'{args.workspace}/log/model-prune.txt')
+    with open(f'{args.workspace}/log/prune_config.json', 'w') as file:
         file.write(json.dumps(prune_config))
         file.close()
 
     if args.image:
         result, latency, y = inference(model, decoder, args.image, in_size, class_names)
         print(f'pruned model latency is {latency} seconds.')
-        cv2.imwrite('detection-prune.jpg', result)
-        np.savetxt('log/1.txt', y.data.numpy().flatten())
+        cv2.imwrite('detection/detection-prune.jpg', result)
+        np.savetxt(f'{args.workspace}/log/1.txt', y.data.numpy().flatten())
     else:
         print('test pruned model...', end='')
         x = torch.rand(1, 3, 416, 416)

@@ -103,6 +103,5 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-dataset/test
-log
 model
+workspace
