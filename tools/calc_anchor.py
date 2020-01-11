@@ -5,14 +5,17 @@
 # date: 2019/9/27
 
 import os
+import re
 import sys
 import cv2
 import copy
+import pickle
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 sys.path.append(".")
 from pascalvoc import PascalVocReader as pvr
+from pascalvoc import PascalVocWriter as pvw
 
 def cal_iou(wh, centroids):
     def iou(wh, centroid):
@@ -61,6 +64,19 @@ def kmeans(wh, k, max_iters):
     idx = np.argsort(centroids[:,0] * centroids[:,1])
     return centroids[idx,:].astype(np.int32), debug_info
 
+def size_filter(label_path, scale, imsize):
+    annocation = pvr(label_path).getShapes()
+    reg = re.compile(re.escape('.xml'), re.IGNORECASE)
+    path, name = os.path.split(label_path)
+    name = reg.sub('', name)
+    writer = pvw(path, name + '.jpg', imsize, localImgPath=os.path.join(path, name + '.jpg'))
+    for an in annocation:            
+        w = int(scale * (an[1][1][0] - an[1][0][0] + 1))
+        h = int(scale * (an[1][2][1] - an[1][0][1] + 1))
+        if w > 1 and h > 1:
+            writer.addBndBox(an[1][0][0], an[1][0][1], an[1][1][0], an[1][2][1], an[0], False)
+    writer.save(label_path)
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--size', type=int, default=416, help='network input size')
@@ -76,19 +92,30 @@ if __name__ == '__main__':
     label_path = path[1::2]
     
     wh = []
-    for ip, lp in zip(image_path, label_path):
-        image = cv2.imread(ip, cv2.IMREAD_COLOR)
-        s = args.size / np.max(image.shape[:2])
-        annocation = pvr(lp).getShapes()
-        for an in annocation:            
-            w = int(s * (an[1][1][0] - an[1][0][0] + 1))
-            h = int(s * (an[1][2][1] - an[1][0][1] + 1))
-            if w <= 1 or h <= 1:
-                print(f'Box ERROR: {ip} {lp}')
-                exit(-1)
-            wh.append((w, h))
-    
-    print('done\ncluster...', end='')
+    cachefile = os.path.join(args.workspace, 'wh.pkl')
+    if not os.path.isfile(cachefile):
+        for ip, lp in zip(image_path, label_path):
+            image = cv2.imread(ip, cv2.IMREAD_COLOR)
+            s = args.size / np.max(image.shape[:2])
+            annocation = pvr(lp).getShapes()
+            flag = False
+            for an in annocation:            
+                w = int(s * (an[1][1][0] - an[1][0][0] + 1))
+                h = int(s * (an[1][2][1] - an[1][0][1] + 1))
+                if w <= 1 or h <= 1:
+                    print(f'Box ERROR: {ip} {lp}')
+                    flag = True
+                    continue
+                wh.append((w, h))
+            if flag:
+                size_filter(lp, s, image.shape)
+        
+        print('done\ncluster...', end='')
+        with open(cachefile, 'wb') as file:
+            pickle.dump(wh, file)
+    else:
+        with open(cachefile, 'rb') as file:
+            wh = pickle.load(file)
     wh = np.array(wh)
     centroids, debug_info = kmeans(wh, args.k, args.max_iters)
         
@@ -96,7 +123,9 @@ if __name__ == '__main__':
     num_reassignment = [di[2] for di in debug_info]
     print(f'done\nbest centroids: {centroids}, avg_iou: {avg_iou[-1]}')
     
-    np.savetxt(f'{args.workspace}/log/anchors.txt', centroids, '%d')
+    if not os.path.exists(os.path.join(args.workspace, 'log')):
+        os.mkdir(os.path.join(args.workspace, 'log'))
+    np.savetxt(os.path.join(args.workspace, 'log', 'anchors.txt'), centroids, '%d')
     
     fig, ax1 = plt.subplots()
     ax1.set_title('Anchor Cluster')
@@ -109,7 +138,7 @@ if __name__ == '__main__':
     ax2.set_ylabel('num_reassignment')
     ax2.plot(num_reassignment, 'b-')
     ax2.tick_params(axis='y')
-    plt.savefig(f'{args.workspace}/log/cluster.jpg', dpi=800)
+    plt.savefig(os.path.join(args.workspace, 'log', 'cluster.jpg'), dpi=800)
     
     fig2 = plt.figure()
     ax3 = fig2.add_subplot(111)
@@ -118,4 +147,4 @@ if __name__ == '__main__':
     ax3.set_ylabel('height')
     ax3.scatter(x=wh[:,0], y=wh[:,1], c='r', marker='x')
     ax3.plot(centroids[:,0], centroids[:,1], 'bo', fillstyle=None)
-    fig2.savefig(f'{args.workspace}/log/wh.jpg', dpi=800)
+    fig2.savefig(os.path.join(args.workspace, 'log', 'wh.jpg'), dpi=800)

@@ -56,7 +56,7 @@ def print_training_message(workspace, epoch, msgs, batch_size):
         file.write(f'{losses}\n')
         file.close()
     
-    with open(f"{workspace}/log/lr.txt", 'w') as file:
+    with open(f"{workspace}/log/lr.txt", 'a') as file:
         for lr in lrs:
             file.write(f"{lr}\n")
         file.close()

@@ -7,6 +7,7 @@
 import re
 import os
 import cv2
+import sys
 import glob
 import utils
 import torch
@@ -14,6 +15,7 @@ import yolov3
 import dataset
 import darknet
 import argparse
+import shufflenetv2
 import numpy as np
 
 if __name__ == '__main__':
@@ -24,6 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--image', type=str, default='', help='test image filename')
     parser.add_argument('--thresh', type=float, default=0.5, help='objectness threshold')
     parser.add_argument('--store', help='store the detection result or not', action='store_true')
+    parser.add_argument('--backbone', type=str, default='darknet53', help='backbone architecture[darknet53(default),shufflenetv2]')
     args = parser.parse_args()
     print(args)
     
@@ -32,7 +35,15 @@ if __name__ == '__main__':
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    model = darknet.DarkNet(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
+    norm = 255
+    if args.backbone == 'darknet53':
+        model = darknet.DarkNet(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
+    elif args.backbone == 'shufflenetv2':
+        model = shufflenetv2.ShuffleNetV2(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
+        norm = 1
+    else:
+        print('unknown backbone architecture!')
+        sys.exit(0)
     model.load_state_dict(torch.load(args.model, map_location=device))
     model.eval()
     
@@ -44,7 +55,7 @@ if __name__ == '__main__':
         bgr = cv2.imread(filename, cv2.IMREAD_COLOR)
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         x, _ = transform(rgb, None)
-        x = x.type(FloatTensor) / 255
+        x = x.type(FloatTensor) / norm
         ys = model(x)
         dets = decoder(ys)
         dets = utils.get_network_boxes(dets, bgr.shape[:2], thresh=args.thresh)

@@ -65,6 +65,8 @@ class CustomDataset(object):
             target.append([0, self.class_names.index(name), bx, by, bw, bh])
 
         target = torch.as_tensor(target, dtype=torch.float32, device=torch.device('cpu'))
+        if target.size(0) == 0:
+            target = torch.FloatTensor(0, 6)
         return image, target
     
     def __len__(self):

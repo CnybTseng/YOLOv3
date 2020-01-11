@@ -5,7 +5,6 @@
 # date: 2019/9/12
 
 import sys
-import yolo
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -128,7 +127,6 @@ class ShuffleNetV2(torch.nn.Module):
         self.stage7 = torch.nn.Sequential(*self.stage7)
         
         self.conv8 = torch.nn.Conv2d(in_channels, out_channels=self.detection_channels, kernel_size=1, stride=1, padding=0, bias=True)
-        self.yolo1 = yolo.Yolo(num_classes=self.num_classes, anchors=self.anchors, anchor_mask=(6,7,8), in_size=in_size)
         
         # YOLO2
         
@@ -146,7 +144,6 @@ class ShuffleNetV2(torch.nn.Module):
         self.stage10 = torch.nn.Sequential(*self.stage10)
         
         self.conv11 = torch.nn.Conv2d(in_channels, out_channels=self.detection_channels, kernel_size=1, stride=1, padding=0, bias=True)
-        self.yolo2 = yolo.Yolo(num_classes=self.num_classes, anchors=self.anchors, anchor_mask=(3,4,5), in_size=in_size)
         
         # YOLO3
         
@@ -164,7 +161,6 @@ class ShuffleNetV2(torch.nn.Module):
         self.stage13 = torch.nn.Sequential(*self.stage13)
         
         self.conv14 = torch.nn.Conv2d(in_channels, out_channels=self.detection_channels, kernel_size=1, stride=1, padding=0, bias=True)
-        self.yolo3 = yolo.Yolo(num_classes=self.num_classes, anchors=self.anchors, anchor_mask=(0,1,2), in_size=in_size)
                
         self.__init_weights()
         
@@ -181,10 +177,8 @@ class ShuffleNetV2(torch.nn.Module):
                 torch.nn.init.constant_(module.running_mean.data, 0)
                 torch.nn.init.constant_(module.running_var.data, 0) 
     
-    def forward(self, x, target=None):
+    def forward(self, x):
         outputs, metrics, losses = [], [], []
-        if target is not None:
-            in_size = (x.size(2), x.size(3))
         
         # Backbone
         x = self.conv1(x)
@@ -201,45 +195,28 @@ class ShuffleNetV2(torch.nn.Module):
         x = self.stage7(x)
         stage7_out = F.interpolate(input=x, scale_factor=2, mode='nearest')
         x = self.conv8(x)
-        if target == None:
-            outputs.append(self.yolo1(x))
-        else:
-            loss, metric = self.yolo1(x, target, in_size)
-            losses.append(loss)
-            metrics.append(metric)
+        outputs.append(x)
         
         # YOLO2
         x = self.conv9(stage4_out)
         x = self.stage10(x + stage7_out)
         stage10_out = F.interpolate(input=x, scale_factor=2, mode='nearest')
         x = self.conv11(x)
-        if target == None:
-            outputs.append(self.yolo2(x))
-        else:
-            loss, metric = self.yolo2(x, target, in_size)
-            losses.append(loss)
-            metrics.append(metric)
+        outputs.append(x)
         
         # YOLO3
         x = self.conv12(stage3_out)
         x = self.stage13(x + stage10_out)
         x = self.conv14(x)
-        if target == None:
-            outputs.append(self.yolo3(x))
-        else:
-            loss, metric = self.yolo3(x, target, in_size)
-            losses.append(loss)
-            metrics.append(metric)
+        outputs.append(x)
         
-        if target == None:
-            return torch.cat(outputs, dim=1).detach().cpu()
-        else:
-            return sum(losses), metrics
+        return outputs
 
 if __name__ == '__main__':
     anchors = np.random.randint(low=10, high=150, size=(9,2))
     model = ShuffleNetV2(anchors, model_size='2.0x')
     model.eval()
     x = torch.rand(1, 3, 416, 416)
-    y = model(x)
-    print(f'output size is {y.size()}')
+    ys = model(x)
+    for i,y in enumerate(ys):
+        print(f'the {i+1}th output size is {y.size()}')

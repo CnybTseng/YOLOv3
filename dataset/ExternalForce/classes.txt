@@ -1,0 +1,6 @@
+car
+building
+fire
+machinery
+person
+trunck
