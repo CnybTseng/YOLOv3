@@ -83,32 +83,13 @@ class YOLOv3Loss(YOLOv3Decoder):
         ss = [s.view(box.size(0), 1) if box.numel() > 0 else self.FloatTensor([0]) for s, box in zip(ss, boxes)]
         tbs, pbs = self.__calc_bkg_pt(dxs, targets[:,2:], iahwc_indices)
         
-        lxywhs = [self.__mse_loss(s*pxywho[:,:4], s*txywho[:,:4]) for s,pxywho,txywho in zip(ss,pxywhos,txywhos)]
+        lxywhs = [self.__sl1_loss(s*pxywho[:,:4], s*txywho[:,:4]) for s,pxywho,txywho in zip(ss,pxywhos,txywhos)]
         los = [self.__bce_loss(pxywho[:,4], txywho[:,4]) for pxywho,txywho in zip(pxywhos,txywhos)]
         lcs = [self.__bce_loss(pc, tc) for pc,tc in zip(pcs,tcs)]
         lbs = [self.__bce_loss(pb, tb) for pb,tb in zip(pbs,tbs)]
         loss = sum([lxywh+lo+lc+lb for lxywh,lo,lc,lb in zip(lxywhs,los,lcs,lbs)])
         
-        metrics = self.__calc_metrics(dxs, boxes, iahwc_indices, pxywhos, pcs, pbs, lxywhs, los, lcs, lbs)
-            
-        '''for bbox, activation in dxs: print(f'bbox size is {bbox.size()}, activation size if {activation.size()}')
-        print(f'iahwc_index=\n{iahwc_index}')
-        print(f'layer_index=\n{layer_index}')
-        print(f'txywho=\n{txywho}')
-        print(f'tc=\n{tc}')
-        for mask in layer_mask: print(f'layer_mask=\n{mask.type(self.LongTensor)}')
-        for _iahwc_index in iahwc_indices: print(f'iahwc_indices={_iahwc_index.size()}\n{_iahwc_index}')
-        for _txywho in txywhos: print(f'txywhos=\n{_txywho}')
-        for pxywho in pxywhos: print(f'pxywho=\n{pxywho}')
-        for pc in pcs: print(f'pc={pc.size()}\n{pc}')
-        for s in ss: print(f's=\n{s}')
-        for lxywh in lxywhs: print(f'lxywh=\n{lxywh}')
-        for lo in los: print(f'lo=\n{lo}')
-        for lc in lcs: print(f'lc=\n{lc}')
-        for tb in tbs: print(f'tb={tb.size()}\n{tb}')
-        for pb in pbs: print(f'pb={pb.size()}\n{pb}')
-        for lb in lbs: print(f'lb=\n{lb}')'''
-                
+        metrics = self.__calc_metrics(dxs, boxes, iahwc_indices, pxywhos, pcs, pbs, lxywhs, los, lcs, lbs)                
         return loss, metrics
         
     def __parse_targets(self, dxs, targets, in_size):
@@ -236,7 +217,13 @@ class YOLOv3Loss(YOLOv3Decoder):
         if input.numel() == 0 or target.numel() == 0:
             return self.FloatTensor([0]).requires_grad_()
         return torch.nn.MSELoss(reduction='sum')(input, target)
-        
+    
+    def __sl1_loss(self, input, target):
+        assert input.numel() == target.numel()
+        if input.numel() == 0 or target.numel() == 0:
+            return self.FloatTensor([0]).requires_grad_()
+        return torch.nn.SmoothL1Loss(reduction='sum')(input, target)
+    
     def __bce_loss(self, input, target, weight=None):
         assert input.numel() == target.numel()
         if input.numel() == 0 or target.numel() == 0:

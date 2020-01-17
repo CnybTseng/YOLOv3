@@ -25,7 +25,6 @@ sys.path.append('.')
 import utils
 import darknet as net
 import dataset as ds
-from evaluate import evaluate
 import yolov3
 
 def save_print_stdout(object, filename):
@@ -320,39 +319,39 @@ if __name__ == '__main__':
         cv2.imwrite('detection/detection-prune.jpg', result)
         sys.exit()
     
-    if args.eval:
-        dataset = ds.CustomDataset(args.dataset, 'test')
-        data_loader = torch.utils.data.DataLoader(
-            dataset=dataset,
-            batch_size=1,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False))
-        
-        if os.path.isfile(args.model):
-            model = torch.load(args.model, map_location=device)
-            model.eval()
-            mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
-            print(f'mAP of {args.model} on validation dataset:%.2f%%' % (mAP * 100))
-            sys.exit()
-        elif os.path.isdir(args.model):
-            paths = list(sorted(glob.glob(os.path.join(args.model, '*.pth'))))
-            mAPs = list()
-            for path in paths:
-                if 'trainer' in path: continue
-                segments = re.split(r'[-,.]', path)
-                if int(segments[-2]) < args.eval_epoch: continue
-                model = torch.load(path, map_location=device)
-                model.eval()
-                mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
-                mAPs.append(mAP)
-                with open(f'{args.workspace}/log/evaluation.txt', 'a') as file:
-                    file.write(f'{int(segments[-2])} {mAP}\n')
-                    file.close()
-                print(f'mAP of {path} on validation dataset:%.2f%%' % (mAP * 100))
-            mAPs = np.array(mAPs)
-            epoch = np.argmax(mAPs)
-            print(f'Best model is ckpt-{epoch+args.eval_epoch}, best mAP is %.2f%%' % (mAPs[epoch] * 100))
+    # if args.eval:
+    #     dataset = ds.CustomDataset(args.dataset, 'test')
+    #     data_loader = torch.utils.data.DataLoader(
+    #         dataset=dataset,
+    #         batch_size=1,
+    #         shuffle=False,
+    #         num_workers=0,
+    #         collate_fn=partial(ds.collate_fn, in_size=torch.IntTensor(in_size), train=False))
+    #     
+    #     if os.path.isfile(args.model):
+    #         model = torch.load(args.model, map_location=device)
+    #         model.eval()
+    #         mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
+    #         print(f'mAP of {args.model} on validation dataset:%.2f%%' % (mAP * 100))
+    #         sys.exit()
+    #     elif os.path.isdir(args.model):
+    #         paths = list(sorted(glob.glob(os.path.join(args.model, '*.pth'))))
+    #         mAPs = list()
+    #         for path in paths:
+    #             if 'trainer' in path: continue
+    #             segments = re.split(r'[-,.]', path)
+    #             if int(segments[-2]) < args.eval_epoch: continue
+    #             model = torch.load(path, map_location=device)
+    #             model.eval()
+    #             mAP = evaluate(model, decoder, data_loader, device, args.num_classes)
+    #             mAPs.append(mAP)
+    #             with open(f'{args.workspace}/log/evaluation.txt', 'a') as file:
+    #                 file.write(f'{int(segments[-2])} {mAP}\n')
+    #                 file.close()
+    #             print(f'mAP of {path} on validation dataset:%.2f%%' % (mAP * 100))
+    #         mAPs = np.array(mAPs)
+    #         epoch = np.argmax(mAPs)
+    #         print(f'Best model is ckpt-{epoch+args.eval_epoch}, best mAP is %.2f%%' % (mAPs[epoch] * 100))
     
     model = net.DarkNet(anchors, in_size=in_size, num_classes=args.num_classes).to(device)
     model.load_state_dict(torch.load(args.model, map_location=device))
