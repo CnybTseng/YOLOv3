@@ -17,7 +17,7 @@ if __name__ == '__main__':
     annopath = os.path.join(args.annopath, '{}.xml')
     APs = []
     for det in dets:
-        classname = det.split('.')[0].split('_')[-1]
+        classname = det.split('.')[0].split('comp4_det_test_')[1]
         rec, prec, ap = voc_eval(detpath, annopath, args.imagesetfile, classname, 'log', args.ovthresh, args.use_07_metric)
         APs.append(ap)
         print("AP of {} is {}".format(classname, ap))

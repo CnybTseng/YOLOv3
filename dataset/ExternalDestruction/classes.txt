@@ -1,6 +1,7 @@
-car
 building
+car
 fire
 machinery
 person
-trunck
+smoke
+towercrane

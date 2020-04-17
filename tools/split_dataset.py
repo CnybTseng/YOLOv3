@@ -12,8 +12,12 @@ args = parser.parse_args()
 assert args.path
 assert args.tr > 0.5 and args.tr < 1.000001
 
-image_filenames = list(sorted(glob.glob(os.path.join(args.path, '*.jpg')))) + list(sorted(glob.glob(os.path.join(args.path, '*.JPG'))))
-label_filenames = list(sorted(glob.glob(os.path.join(args.path, '*.xml'))))
+image_filenames = []
+for p in args.path.split(','):
+    image_filenames += list(sorted(glob.glob(os.path.join(p, '*.jpg'))))
+    image_filenames += list(sorted(glob.glob(os.path.join(p, '*.JPG'))))
+    image_filenames += list(sorted(glob.glob(os.path.join(p, '*.jpeg'))))
+    image_filenames += list(sorted(glob.glob(os.path.join(p, '*.png'))))
 
 num_samples = len(image_filenames)
 rand_index = np.random.permutation(num_samples)
@@ -22,7 +26,8 @@ num_test = num_samples - num_train
 
 with open('train.txt', 'w') as file:
     for i in range(num_train):
-        file.write(f"{image_filenames[rand_index[i]]} {label_filenames[rand_index[i]]}\n")
+        root, ext = os.path.splitext(image_filenames[rand_index[i]])
+        file.write(f"{image_filenames[rand_index[i]]} {root}.xml\n")
     file.close()
 
 if num_test < 1:
@@ -30,5 +35,6 @@ if num_test < 1:
 
 with open('test.txt', 'w') as file:
     for i in range(num_train, num_samples):
-        file.write(f"{image_filenames[rand_index[i]]} {label_filenames[rand_index[i]]}\n")
+        root, ext = os.path.splitext(image_filenames[rand_index[i]])
+        file.write(f"{image_filenames[rand_index[i]]} {root}.xml\n")
     file.close()

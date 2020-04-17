@@ -357,12 +357,13 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load(args.model, map_location=device))
     model.load_prune_permit('model/prune_permit.json')
     save_print_stdout(model, f'{args.workspace}/log/model.txt')
-    model.eval()
+    # don't use 'model.eval()' in case of 'batch_norm_dead_output' error in exported onnx model
     # save_model_parameter_as_file(model, 'log/0')
     model_copy = copy.deepcopy(model)
     
     if args.image:
-        result, latency, y = inference(model, decoder, args.image, in_size, class_names)
+        # don't use 'model' in case of 'batch_norm_dead_output' error in exported onnx model
+        result, latency, y = inference(model_copy, decoder, args.image, in_size, class_names)
         print(f'original model latency is {latency} seconds.')
         cv2.imwrite('detection/detection.jpg', result)
         np.savetxt(f'{args.workspace}/log/0.txt', y.data.numpy().flatten())
@@ -388,7 +389,7 @@ if __name__ == '__main__':
         np.savetxt(f'{args.workspace}/log/1.txt', y.data.numpy().flatten())
     else:
         print('test pruned model...', end='')
-        x = torch.rand(1, 3, 416, 416)
+        x = torch.rand(1, 3, 416, 416, dtype=torch.float32).to(device)
         ys = model(x)
         for y in ys:
             print(f'done\noutput size is {y.size()}')

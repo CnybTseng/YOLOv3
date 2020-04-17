@@ -27,24 +27,27 @@ if __name__ == '__main__':
     parser.add_argument('--thresh', type=float, default=0.5, help='objectness threshold')
     parser.add_argument('--store', help='store the detection result or not', action='store_true')
     parser.add_argument('--backbone', type=str, default='darknet53', help='backbone architecture[darknet53(default),shufflenetv2]')
+    parser.add_argument('--pruned-model', action='store_true')
     args = parser.parse_args()
     print(args)
     
     in_size = [int(insz) for insz in args.in_size.split(',')]
     classnames = utils.load_class_names(os.path.join(args.dataset, 'classes.txt'))
     anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')   
+    norm = 255 if args.backbone == 'darknet53' else 1
     
-    norm = 255
-    if args.backbone == 'darknet53':
-        model = darknet.DarkNet(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
-    elif args.backbone == 'shufflenetv2':
-        model = shufflenetv2.ShuffleNetV2(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
-        norm = 1
+    if not args.pruned_model:
+        if args.backbone == 'darknet53':
+            model = darknet.DarkNet(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
+        elif args.backbone == 'shufflenetv2':
+            model = shufflenetv2.ShuffleNetV2(anchors, in_size=in_size, num_classes=len(classnames)).to(device)
+        else:
+            print('unknown backbone architecture!')
+            sys.exit(0)
+        model.load_state_dict(torch.load(args.model, map_location=device))
     else:
-        print('unknown backbone architecture!')
-        sys.exit(0)
-    model.load_state_dict(torch.load(args.model, map_location=device))
+        model = torch.load(args.model, map_location=device)
     model.eval()
     
     decoder = yolov3.YOLOv3EvalDecoder(in_size, len(classnames), anchors)
@@ -53,6 +56,7 @@ if __name__ == '__main__':
         
     def process_single_image(filename):
         bgr = cv2.imread(filename, cv2.IMREAD_COLOR)
+        assert bgr is not None, 'cv2.imread({}) fail'.format(filename)
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         x, _ = transform(rgb, None)
         x = x.type(FloatTensor) / norm

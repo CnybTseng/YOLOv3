@@ -100,6 +100,10 @@ class YOLOv3Loss(YOLOv3Decoder):
         txywho = torch.zeros(size=(nobjs, 5), dtype=torch.float32, device=self.device)
         tc = torch.zeros(size=(nobjs, self.num_classes), dtype=torch.float32, device=self.device)
         
+        if nobjs == 0:
+            layer_index = self.LongTensor([])
+            return iahwc_index, layer_index, txywho, tc
+        
         iahwc_index[:,0] = targets[:,0].type(self.LongTensor)
         iahwc_index[:,4] = targets[:,1].type(self.LongTensor)
         
@@ -138,6 +142,7 @@ class YOLOv3Loss(YOLOv3Decoder):
         tboxes = self.__xywh_to_xyxy(tboxes)
         bkg_masks = [self.BoolTensor(s[0], s[1], s[2], s[3]).fill_(1) for s in sizes]
         for (mask, index, dx, size) in zip(bkg_masks, iahwc_indices, dxs, sizes):
+            if index.size(0) == 0: continue
             mask[index[:,0], index[:,1], index[:,2], index[:,3]] = 0            
             pboxes = self.__xywh_to_xyxy(dx[0].view(-1, 4))
             ious = torch.stack([self.__cal_IoU(tbox, pboxes.t()) for tbox in tboxes])
@@ -152,7 +157,7 @@ class YOLOv3Loss(YOLOv3Decoder):
         ccs = [(index[:,4]==pc.argmax(-1)).float() if pc.numel() else self.FloatTensor([0]) for index,pc in zip(iahwc_indices, pcs)]
         caccs = [cc.mean().detach().cpu().item() for cc in ccs]
         
-        confs = [pxywho[:,4].mean().detach().cpu().item() if pxywho.numel() else self.FloatTensor([0]) for pxywho in pxywhos]
+        confs = [pxywho[:,4].mean().detach().cpu().item() if pxywho.numel() else .0 for pxywho in pxywhos]
         bkgcs = [pb.mean().detach().cpu().item() for pb in pbs]
         
         conf50pps = [(dx[1][...,4]>0.5).float().sum() for dx in dxs]
@@ -170,7 +175,7 @@ class YOLOv3Loss(YOLOv3Decoder):
         aious = [iou.mean().detach().cpu().item() for iou in ious]
         
         rows = [torch.arange(index.size(0), dtype=torch.int64, device=self.device) if index.numel() else None for index in iahwc_indices]
-        acats = [pc[row,ind[:,4]].mean().detach().cpu().item() if row is not None else self.FloatTensor([0]) for pc,row,ind in zip(pcs,rows,iahwc_indices)]
+        acats = [pc[row,ind[:,4]].mean().detach().cpu().item() if row is not None else .0 for pc,row,ind in zip(pcs,rows,iahwc_indices)]
         
         metrics = list()
         for cacc,conf,bkgc,prec,rc50,rc75,aiou,acat in zip(caccs,confs,bkgcs,precs,rc50s,rc75s,aious,acats):
