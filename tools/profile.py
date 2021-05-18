@@ -12,6 +12,7 @@ import numpy as np
 sys.path.append('.')
 import darknet
 import argparse
+import shufflenetv2
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -132,6 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='', help='dataset path')
     parser.add_argument('--num-classes', type=int, default=3, help='number of classes')
     parser.add_argument('--pruned-model', '-pm', action='store_true')
+    parser.add_argument('--backbone', type=str, default='darknet53', help='backbone architecture[darknet53(default),shufflenetv2]')
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -139,7 +141,13 @@ if __name__ == '__main__':
     
     if not args.pruned_model:
         anchors = np.loadtxt(os.path.join(args.dataset, 'anchors.txt'))
-        model = darknet.DarkNet(anchors, in_size, num_classes=args.num_classes).to(device)
+        if args.backbone == 'darknet53':
+            model = darknet.DarkNet(anchors, in_size, num_classes=args.num_classes).to(device)
+        elif args.backbone == 'shufflenetv2':
+            model = shufflenetv2.ShuffleNetV2(anchors, in_size=in_size, num_classes=args.num_classes).to(device)
+        else:
+            print('unknown backbone architecture!')
+            sys.exit(0)
         model.load_state_dict(torch.load(args.model, map_location=device))
     else:
         model = torch.load(args.model, map_location=device)
